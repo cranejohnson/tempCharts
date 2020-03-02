@@ -1,0 +1,916 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+  <head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8" />
+	<title>Temp_Plot</title>
+	<style type="text/css">v\:* {behavior:url(#default#VML);}</style>
+	<link rel="stylesheet" type="text/css" href="https://code.jquery.com/ui/1.11.4/themes/cupertino/jquery-ui.css" />
+<!--	<link rel="stylesheet" type="text/css" href="./css/xmacis_1.0.12.min.css" />
+	    <link rel="stylesheet" type="text/css" media="print" href="./css/xmacisp_1.0.0.min.css" /> -->
+    <style>
+      #tempChart,#AFDDchart {
+        width:800px;
+        height:500px;
+        margin: auto;
+        border: 3px solid #73AD21;
+      }
+    </style>
+
+
+  </head>
+
+<body>
+<div id="resizer"><div id="AFDDchart">"</div>
+<div id="resizer"><div id="tempChart"></div>
+
+
+
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.4/jquery-ui.min.js"></script>
+<script type="text/javascript" src="./packages_1.0.2.js"></script>
+<script src="https://code.highcharts.com/highcharts.js"></script>
+<script src="https://code.highcharts.com/highcharts-more.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment.min.js"></script>
+
+
+
+<script type="text/javascript">
+
+var highchartColors, stationsSingleButtons, stationsMultiButtons, defaults = {},
+    input_params = {},
+    map = null,
+    dragZoom = null,
+    markersArray = [],
+    overlaysArray = [],
+    //Highcharts = null,
+    areaButtons = null;
+    sDate = "2019-10-01";
+    eDate = "2020-09-30";
+
+var site = getUrlParam('site','PAFA');
+
+
+setupTempGraph('tempChart');
+addCurrentTemps('tempChart',site,sDate,eDate);
+addForecastSeries('tempChart');
+addExtsToChart('tempChart',site,sDate,eDate);
+addEkdMos('tempChart');
+
+// postResults("/StnData",function(e){
+//         displayTempGrf(e);
+//     });
+
+
+function getUrlVars() {
+    var vars = {};
+    var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+        vars[key] = value;
+    });
+    return vars;
+}
+
+function getUrlParam(parameter, defaultvalue){
+    var urlparameter = defaultvalue;
+    if(window.location.href.indexOf(parameter) > -1){
+        urlparameter = getUrlVars()[parameter];
+        }
+    return urlparameter;
+}
+
+function sortTemps(a, b) {
+  return a > b ? 1 : b > a ? -1 : 0;
+}
+
+function postError() {
+    $(".loading").parent().loadSpinner("fadeOut"), $(document).reportError({
+        errorText: "Error obtaining data"
+    })
+}
+
+function postSuccess(e, t, a) {
+    $(".loading").length && $(".loading").parent().loadSpinner("fadeOut"), e ? e.error && !a ? $(document).reportError({
+        errorText: e.error
+    }) : t(e) : $(document).reportError({
+        errorText: "No results for request"
+    })
+}
+
+function postResults(e, t, a) {
+    var n, o, i = "https://data.rcc-acis.org" + e;
+    window.XDomainRequest ? ((n = new XDomainRequest).open("GET", i + "?params=" + JSON.stringify(input_params)), n.onload = function() {
+        postSuccess(JSON.parse(n.responseText), t, a)
+    }, n.onerror = postError, n.onprogress = function() {}, n.ontimeout = function() {}, setTimeout(function() {
+        n.send()
+    }, 0)) : (o = {
+        params: JSON.stringify(input_params),
+        output: "json"
+    }, $.ajax(i, {
+        type: "POST",
+        data: o,
+        dataType: "json",
+        crossDamain: !0,
+        success: function(e) {
+            postSuccess(e, t, a)
+        },
+        error: postError
+    }))
+}
+
+
+
+
+
+function addForecastSeries(container){
+    var chart = $('#'+container).highcharts();
+    var forecastURL;
+
+    $.ajax({
+        dataType: "json",
+        url: "https://api.weather.gov/points/"+chart.userOptions.lat+","+chart.userOptions.lon,
+        async : false,
+        success: function(result){
+            forecastURL = result.properties.forecast
+        }
+    });
+    $.ajax({
+        dataType: "json",
+        url: forecastURL,
+        async : false,
+        success: function(result) {
+            var d = {};
+            var times = [];
+            var data = [];
+
+            $.each(result.properties.periods,function(){
+                var day = moment.utc(this.startTime).add(6, 'hours').startOf('day').format("x");
+                if(typeof d[day]  != "undefined"){
+                    d[day].push(this.temperature);
+                    d[day].sort(sortTemps);
+                }else{
+                    times.push(day);
+                    d[day] = [this.temperature];
+                }
+            });
+            //add a min value if the first period is in the evening
+            if(d[times[0]].length == 1) d[times[0]].unshift(d[times[0]][0]-10);
+            for (var i = 0; i < times.length; i++) {
+                var x = times[i];
+                if(d[x].length == 1) continue;
+                var column = {};
+
+                column['x'] = parseInt(x);
+                column['low'] = d[x][0];
+                column['high'] = d[x][1];
+                var flat = [parseInt(x),d[x][0],d[x][1]];
+
+                //Do something
+                data.push(column);
+            }
+            seriesOps = {
+                name: 'Current NWS Forecast',
+                id: 'nwsForecast',
+                data: data,
+                type: "columnrange",
+                color: 'black',
+                zIndex:10,
+                lineWidth: 1,
+                turboThreshold:367,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
+                },
+            };
+
+            chart.addSeries(seriesOps);
+        }
+    })
+}
+
+
+function addEkdMos(container){
+    var chart = $('#'+container).highcharts();
+    var forecastURL;
+    var siteId = chart.userOptions.siteId;
+    var url = "http://data.whitewinter.net/getEkdmos.php?site="+siteId;
+    $.ajax({
+        dataType: "json",
+        url: url,
+        success: function(result) {
+
+            var seriesOps = {
+                name: 'EkdMos Median '+result['basistime'],
+                id: 'ekdmos',
+                data: result['cdf50'],
+                type: "columnrange",
+                color: 'red',
+                zIndex:4,
+                lineWidth: 1,
+                turboThreshold:367,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 50%: <b>{point.low} to {point.high} F</b><br/>',
+                },
+            };
+            console.log(seriesOps);
+            chart.addSeries(seriesOps);
+            var seriesOps = {
+                name: 'EkdMos cfd10',
+                id: 'ekdmos',
+                data: result['cdf10'],
+                type: "scatter",
+                visible: false,
+                marker: {
+                    symbol: 'circle',
+                    radius: 6
+                },
+                color: 'green',
+                zIndex:5,
+                lineWidth: 0,
+                turboThreshold:367,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 10%: <b>{point.low} to {point.high} F</b><br/>',
+                },
+            };
+            console.log(seriesOps);
+            chart.addSeries(seriesOps);
+            var seriesOps = {
+                name: 'EkdMos cdf90',
+                id: 'ekdmos',
+                visible: false,
+                data: result['cdf90'],
+                type: "scatter",
+                color: 'blue',
+                marker: {
+                    symbol: 'circle',
+                    radius: 6
+                },
+                zIndex:5,
+                lineWidth: 0,
+                turboThreshold:367,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 90%: <b>{point.low} to {point.high} F</b><br/>',
+                },
+            };
+            console.log(seriesOps);
+            chart.addSeries(seriesOps);
+        }
+    })
+}
+
+function addCurrentTemps(container,sid,sDate,eDate){
+    var chart = $('#'+container).highcharts();
+    chart.yAxis[0].addPlotBand({
+            value: 32,
+            color: "blue",
+            dashStyle: "shortdash",
+            width: 1,
+            zIndex: 1
+    });
+    var input_params = {
+        "sid" : sid,
+        "sDate" : sDate,
+        "eDate" : eDate,
+        "elems": [{
+                name: "maxt"
+            }, {
+                name: "mint"
+            }, {
+                name: "maxt",
+                duration: "dly",
+                normal: "1",
+                prec: 1
+            }, {
+                name: "mint",
+                duration: "dly",
+                normal: "1",
+                prec: 1
+            }]
+        };
+    var o = {
+        params: JSON.stringify(input_params),
+        output: "json"
+    };
+
+    $.ajax({
+        type: "POST",
+        data: o,
+        url: 'https://data.rcc-acis.org/StnData',
+        dataType: "json",
+        async : false,
+        crossDamain: !0,
+        success: function(e) {
+            chart.update({
+                title : {
+                    text: "Daily Temperature Data - " + buildStationName(e.meta)
+                },
+
+            });
+            var t, a, n = e.data[0][0].substr(0, 4),
+            s = e.data[e.data.length - 1][0].substr(0, 4),
+            r = "(" + n + (n !== s ? "-" + s : "") + ")",
+            i = [
+                [],
+                []
+            ];
+            chart.update({
+                lat: e.meta.ll[1],
+                lon: e.meta.ll[0],
+                siteId : sid
+            });
+
+            $.each(e.data, function(e, n) {
+            for (t = ymdToUTC(n[0]), a = 1; a < n.length; a += 2) "M" !== n[a] && "M" !== n[a + 1] ? i[(a - 1) / 2].push([t, parseFloat(n[a + 1]), parseFloat(n[a])]) : i[(a - 1) / 2].push([t, null, null])
+            })
+            series =  {
+                data: i[0],
+                color: "blue",
+                name: "Observed temp " + r,
+                type: "columnrange",
+                zIndex: 2,
+                lineWidth: 1,
+                turboThreshold: i[0].length + 1,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
+                },
+                //pointPadding : 0.25
+            },
+            chart.addSeries(series);
+            series = {
+                data: i[1],
+                id : 'normals',
+                color: "#B8860B",
+                name: "Normal temperature range",
+                type: i[1].length > 1 ? "arearange" : "columnrange",
+                zIndex: 1,
+                lineWidth: 1,
+                turboThreshold: i[1].length + 1,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
+                },
+            },
+            chart.addSeries(series);
+        },
+        error: postError
+    })
+
+}
+
+
+function addExtsToChart(container,sid,sDate,eDate){
+    var chart = $('#'+container).highcharts();
+    var t = sDate.substr(5),
+        a = eDate.substr(5),
+        n = (new Date).getFullYear(),
+        s = "1840-" + t,
+        r = n + "-" + a;
+    if ("02-29" === t && (t = "02-28"), "02-29" === a) {
+        for (; !Date.isLeapYear(n);) n += 1;
+        r = n + "-" + a
+    }
+    var input_params = {
+        sid : sid,
+        sDate: s,
+        eDate: r,
+        meta: ["name", "state", "valid_daterange", "sids"],
+        elems: [{
+            name: "maxt",
+            interval: "dly",
+            duration: "dly",
+            smry: {
+                reduce: "max",
+                add: "date"
+            },
+            smry_only: 1,
+            groupby: ["year", t, a]
+        }, {
+            name: "mint",
+            interval: "dly",
+            duration: "dly",
+            smry: {
+                reduce: "min",
+                add: "date"
+            },
+            smry_only: 1,
+            groupby: ["year", t, a]
+        }]
+    };
+    var o = {
+        params: JSON.stringify(input_params),
+        output: "json"
+    };
+
+    $.ajax({
+    type: "POST",
+    data: o,
+    url: 'https://data.rcc-acis.org/StnData',
+    dataType: "json",
+    async : true,
+    crossDamain: !0,
+    success: function(e) {
+        chart.update({
+            subtitle : {
+                text: "Period of Record - " + (JSON.stringify(e.meta.valid_daterange[0]) !== JSON.stringify(e.meta.valid_daterange[1]) ? "Max temperature: " + e.meta.valid_daterange[0][0] + " to " + e.meta.valid_daterange[0][1] + "; Min temperature: " : "") + e.meta.valid_daterange[1][0] + " to " + e.meta.valid_daterange[1][1] + ".  Normals period: 1981-2010.  Click and drag to zoom chart."
+            }
+        });
+        var a, n, s, r, i = {},
+            o = {},
+            l = [
+                [],
+                [],
+                [],
+                []
+            ];
+        for (a = 0; a < e.smry[0].length; a += 1) i[e.smry[0][a][1].substr(5, 5)] = [e.smry[0][a][0], e.smry[0][a][1].substr(0, 4)], o[e.smry[1][a][1].substr(5, 5)] = [e.smry[1][a][0], e.smry[1][a][1].substr(0, 4)];
+        var normalsData = chart.get('normals').data;
+        $.each(normalsData, function(e, t) {
+            n = t['x'];
+            r = new Date(n);
+            s = numberPad(r.getUTCMonth() + 1, 2) + "-" + numberPad(r.getUTCDate(), 2);
+            i[s][0] && "M" !== i[s][0] ? (l[0].push([n, parseInt(i[s][0], 10)]), l[2].push([n, t['high'], parseInt(i[s][0], 10)])) : l[0].push([n, null]);
+            o[s] && "M" !== o[s] ? (l[1].push([n, parseInt(o[s], 10)]), l[3].push([n, t['low'], parseInt(o[s], 10)])) : l[1].push([n, null]);
+
+        })
+        var newSeries = [{
+            name: "Record Max",
+            data: l[0],
+            color: "red",
+            type: "line",
+            showInLegend: !0,
+            lineWidth: 1,
+            tooltip: {
+                pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.y} F</b><br/>',
+            },
+
+        }, {
+            data: l[2],
+            tooltip: {
+                pointFormat: ""
+            },
+            color: "#FA8072",
+            linkedTo: ':previous',
+            lineColor: "red",
+            type: l[2].length > 1 ? "arearange" : "columnrange",
+            showInLegend: !1,
+            turboThreshold: l[2].length + 1
+        },{
+            name: "Record Min",
+            data: l[1],
+            color: "#0099FF",
+            type: "line",
+            showInLegend: !0,
+            lineWidth: 1,
+            tooltip: {
+                pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.y} F</b><br/>',
+            },
+        },  {
+            data: l[3],
+            tooltip: {
+                pointFormat: ""
+            },
+            color: "#CCFFFF",
+            lineColor: "#0099FF",
+            linkedTo: ':previous',
+            type: l[3].length > 1 ? "arearange" : "columnrange",
+            showInLegend: !1,
+            turboThreshold: l[3].length + 1
+        }];
+        for(i = 0; i < newSeries.length; i++){
+            chart.addSeries(newSeries[i]);
+        }
+
+        }
+    })
+}
+
+// function plotTempChart(e, t, a, n) {
+//     }), $.extend(e.tooltip, {
+//         shared: !0,
+//         formatter: function() {
+//             var e = "<b>" + Highcharts.dateFormat("%A, %B %e, %Y", this.x) + "</b>",
+//                 t = Highcharts.dateFormat("%m-%d", this.x);
+//             return $.each(this.points, function(s, r) {
+//                 r.series.tooltipOptions.pointFormat.length && (e += '<br /><span style="color:' + r.series.color + ';">' + r.series.name + ": " + roundStr(r.point.y, 0) + "°F" + (r.point.high || r.point.low ? " to " + roundStr(r.point.high, 0) + "°F" : " in " + ("Record Max" === r.series.name ? a[t][1] : n[t][1])) + "</span>")
+//             }), e
+//         }
+//     }), $.extend(e, disableControls()), 1 === e.series[0].data.length && ($.extend(e.plotOptions.columnrange, {
+//         grouping: !1
+//     }), $.extend(e.series[0], {
+//         pointPadding: .25
+//     })),
+//     console.log(e);
+//      $("#tempChart").highcharts(e);
+//
+// }
+
+
+function ymdToUTC(e) {
+    for (var t = e.split("-"); t.length < 3;) t.push(1);
+    return Date.UTC(t[0], t[1] - 1, t[2], 0)
+}
+
+function numberPad(e, t, a) {
+    var n = e.toString();
+    for (a || (a = "0"); n.length < t;) n = a + n;
+    return n
+}
+
+function getPlotLine32() {
+    return !($("#plotLine32").length > 0) || $("#plotLine32").prop("checked")
+}
+
+function buildStationName(e) {
+    var t, a, n = e.sids,
+        s = e.name + ", " + e.state;
+    for (t = 0; t < n.length; t += 1) {
+        if ("10" === (a = n[t].split(" "))[1]) {
+            s += " (CoCoRaHS)";
+            break
+        }
+        if ("9" === a[1]) {
+            s += " (ThreadEx)";
+            break
+        }
+        if ("17" === a[1]) {
+            s += " (SCAN)";
+            break
+        }
+        if ("19" === a[1]) {
+            s += " (TSCAN)";
+            break
+        }
+        if ("6" === a[1] && "USS" === a[0].substr(0, 3)) {
+            s += " (Snotel)";
+            break
+        }
+        if ("6" === a[1] && "USR" === a[0].substr(0, 3)) {
+            s += " (RAWS)";
+            break
+        }
+        if ("16" === a[1]) {
+            s += " (AWDN)";
+            break
+        }
+    }
+    return s
+}
+
+function disableControls() {
+    return {
+        navigator: {
+            enabled: !1
+        },
+        rangeSelector: {
+            enabled: !1
+        },
+        scrollbar: {
+            enabled: !1
+        }
+    }
+}
+
+
+
+function roundStr(e, t) {
+    return roundNum(parseFloat(e), t).toFixed(t)
+}
+
+function roundNum(e, t) {
+    return Math.round(e * Math.pow(10, t)) / Math.pow(10, t)
+}
+
+
+function setupTempGraph(container){
+
+    //var t = e && e.yaxisCnt ? e.yaxisCnt : 1,
+    var t = 1,
+        a = highchartColors ? highchartColors.darkColor : "black",
+        n = highchartColors ? highchartColors.medColor : "#3baae3",
+        o = highchartColors ? highchartColors.ltColor : "#aed0ea",
+        i = highchartColors ? highchartColors.vltColor : "#e4f1fb",
+        r = highchartColors ? highchartColors.shadingColor : "#4572a7",
+        s = [{
+            title: {
+                style: {
+                    color: a,
+                    fontWeight: "bold"
+                }
+            },
+            lineColor: n,
+            gridLineColor: o,
+            gridLineWidth: 1,
+            minorGridLineWidth: 1,
+            minorGridLineDashStyle: "dot",
+            minorTickInterval: "auto",
+            minorTickWidth: 1,
+            showFirstLabel: !0,
+            showLastLabel: !0,
+            labels: {
+                align: "right",
+                x: -5,
+                y: 3,
+                style: {
+                    color: a
+                }
+            },
+            opposite: !1
+        }, {
+            title: {
+                text: "Temperature (°C)",
+                style: {
+                    color: a,
+                    fontWeight: "bold"
+                }
+            },
+            lineColor: n,
+            gridLineWidth: 0,
+            minorGridLineWidth: 0,
+            minorTickInterval: "auto",
+            minorTickWidth: 1,
+            showFirstLabel: !0,
+            showLastLabel: !0,
+            labels: {
+                align: "left",
+                x: 5,
+                y: 3,
+                style: {
+                    color: a
+                }
+            },
+            opposite: !0,
+            linkedTo: 0
+        }];
+    chartObject =  {
+        chart: {
+            renderTo: container,
+            zoomType: "x",
+            borderWidth: 0,
+            borderColor: n,
+            spacingBottom: 20,
+            resetZoomButton: {
+            position: {
+                align: "right",
+                verticalAlign: "top",
+                x: -15,
+                y: 5
+            },
+            relativeTo: "chart"
+        },
+        },
+        colors: ["fuchsia", "aqua", "orange", "purple", "silver", "lime", "yellow", "maroon", "navy", "olive", "teal"],
+        title: {
+            style: {
+                color: a
+            }
+        },
+        subtitle: {
+            text: "Click and drag to zoom to a shorter time interval",
+            style: {
+                color: a
+            }
+        },
+        credits: {
+            enabled: false
+        },
+        navigation: {
+            buttonOptions: {
+                theme: {
+                    states: {
+                        hover: {
+                            fill: o
+                        }
+                    }
+                }
+            },
+            menuItemHoverStyle: {
+                background: o,
+                color: a
+            }
+        },
+        navigator: {
+            handles: {
+                backgroundColor: i,
+                borderColor: a
+            },
+            margin: 15,
+            outlineColor: a,
+            xAxis: {
+                lineColor: n,
+                gridLineColor: o,
+                labels: {
+                    style: {
+                        color: a
+                    }
+                }
+            },
+            series: {
+                color: r,
+                fillOpacity: .4
+            }
+        },
+        rangeSelector: {
+            buttonSpacing: 0,
+            buttonTheme: {
+                fill: i,
+                stroke: n,
+                "stroke-width": 1,
+                style: {
+                    color: n
+                },
+                states: {
+                    hover: {
+                        fill: o,
+                        style: {
+                            color: a
+                        }
+                    },
+                    select: {
+                        fill: r,
+                        style: {
+                            color: "white"
+                        }
+                    }
+                }
+            },
+            inputStyle: {
+                color: a
+            },
+            labelStyle: {
+                color: a
+            },
+            selected: 5
+        },
+        scrollbar: {
+            barBackgroundColor: i,
+            barBorderColor: a,
+            buttonBorderColor: a,
+            buttonArrowColor: a,
+            rifleColor: a,
+            trackBorderColor: a
+        },
+        legend: {
+            enabled: !0,
+            //borderColor: n,
+            //borderRadius: 5,
+            //borderWidth: 1,
+            margin: 10,
+            reversed: !1,
+            itemStyle: {
+                color: a,
+                fontSize: "92%",
+                fontWeight: "normal"
+            }
+        },
+        tooltip: {
+            enabled: !0,
+            shared: !0,
+            positioner: function () {
+                    return { x: 25, y:25 };
+            },
+            headerFormat: '<b><large>{point.key}</large></b><br>',
+            style: {
+                width: '350px',
+                height: '100px',
+            },
+        },
+        xAxis: {
+            type: "datetime",
+            plotLines: [{
+                color: 'black', // Color value
+                dashStyle: 'dot', // Style of the plot line. Default to solid
+                value: moment(), // Value of where the line will appear
+                width: '2', // Width of the line
+                zIndex:4
+            }],
+            dateTimeLabelFormats: {
+                hour: "-",
+                day: "%b %e",
+                week: "%b %e",
+                month: "%b %e"
+            },
+            minRange: 6912e5,
+            lineColor: n,
+            gridLineColor: o,
+            gridLineWidth: 1,
+            startOnTick: !1,
+            endOnTick: !1,
+            tickPixelInterval: 50,
+            labels: {
+                overflow: !1,
+                style: {
+                    color: a
+                }
+            }
+        },
+        yAxis: [
+            {
+                title: {
+                    text: "Temperature (°F)"
+                },
+            },
+            {
+                title: {
+                    text: "Temperature (°C)"
+                },
+                linkedTo: 0,
+                opposite: true,
+                labels : {
+                    formatter: function() {
+                        return Math.round((this.value - 32) / 1.8 * 10) / 10
+                    }
+                }
+            }
+        ],
+        plotOptions: {
+
+            line: {
+                lineWidth: 2,
+                shadow: !1,
+                dataGrouping: {
+                    enabled: !1
+                },
+                cursor: "pointer",
+                states: {
+                    hover: {
+                        enabled: !1
+                    }
+                },
+                marker: {
+                    enabled: !1,
+                    symbol: "diamond",
+                    radius: 3,
+                    states: {
+                        hover: {
+                            enabled: !1
+                        }
+                    }
+                }
+            },
+            area: {
+                lineWidth: 2,
+                fillOpacity: .1,
+                shadow: !1,
+                dataGrouping: {
+                    enabled: !1
+                },
+                cursor: "pointer",
+                marker: {
+                    enabled: !1,
+                    symbol: "diamond",
+                    radius: 3,
+                    states: {
+                        hover: {
+                            enabled: !1
+                        }
+                    }
+                }
+            },
+            arearange: {
+                fillOpacity: .5,
+                shadow: !1,
+                lineWidth: .1,
+                states: {
+                    hover: {
+                        lineWidthPlus: 0
+                    }
+                },
+                dataGrouping: {
+                    enabled: !1
+                },
+                marker: {
+                    enabled: !1
+                }
+            },
+            column: {
+                fillOpacity: .1,
+                shadow: !1,
+                grouping: false,
+                pointPlacement: 'on',
+                dataGrouping: {
+                    enabled: !1
+                },
+                stacking: "normal",
+                pointPadding: 0
+            },
+            scatter: {
+                marker: {
+                    radius: 3
+                }
+            },
+            columnrange: {
+                shadow: !1,
+                lineWidth: 1,
+                pointPadding: 0.05,
+                groupPadding: 0.1,
+                //pointWidth: 2,
+                borderWidth: 0,
+                grouping : false,
+                dataGrouping: {
+                    enabled: !1
+                }
+            }
+        },
+        series: []
+    }
+    chart = new Highcharts.Chart(chartObject);
+}
+
+
+</script>
+
