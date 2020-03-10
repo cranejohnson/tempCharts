@@ -60,6 +60,8 @@ addEkdMos('tempChart');
 //     });
 
 
+
+
 function getUrlVars() {
     var vars = {};
     var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
@@ -479,26 +481,78 @@ function addExtsToChart(container,sid,sDate,eDate){
     })
 }
 
-// function plotTempChart(e, t, a, n) {
-//     }), $.extend(e.tooltip, {
-//         shared: !0,
-//         formatter: function() {
-//             var e = "<b>" + Highcharts.dateFormat("%A, %B %e, %Y", this.x) + "</b>",
-//                 t = Highcharts.dateFormat("%m-%d", this.x);
-//             return $.each(this.points, function(s, r) {
-//                 r.series.tooltipOptions.pointFormat.length && (e += '<br /><span style="color:' + r.series.color + ';">' + r.series.name + ": " + roundStr(r.point.y, 0) + "°F" + (r.point.high || r.point.low ? " to " + roundStr(r.point.high, 0) + "°F" : " in " + ("Record Max" === r.series.name ? a[t][1] : n[t][1])) + "</span>")
-//             }), e
-//         }
-//     }), $.extend(e, disableControls()), 1 === e.series[0].data.length && ($.extend(e.plotOptions.columnrange, {
-//         grouping: !1
-//     }), $.extend(e.series[0], {
-//         pointPadding: .25
-//     })),
-//     console.log(e);
-//      $("#tempChart").highcharts(e);
-//
-// }
+function getHistTemps(sid){
+    var beginYear = 1800;
+    var workYear = 1800;
+    var allSeries = [];
+    var singleSeries = {};
 
+    var input_params = {
+        "sid" : sid,
+        "sDate" : "1800-01-01",
+        "eDate" : "2030-01-01",
+        "elems": [
+            {
+                name: "avgt",
+                duration: "dly",
+                prec: 1
+            }
+        ]}
+    var o = {
+        params: JSON.stringify(input_params),
+        output: "json"
+    };
+
+    $.ajax({
+        type: "POST",
+        data: o,
+        url: 'https://data.rcc-acis.org/StnData',
+        dataType: "json",
+        async : false,
+        crossDamain: !0,
+        success: function(e) {
+            var point = {}
+
+            $each(e.smry[0],function(){
+                $newYear = wf(this[1]);
+                if($newYear > $workYear){
+                    allSeries.push(singleSeries);
+                    singleSeries = {
+                        name: oldYear +"  ("+ daysEstimated + " days estimated)" ,
+                        showInLegend: false,
+                        waterYear:oldYear,
+                        color: 'LightGray',
+                        zIndex:1,
+                        lineWidth: 2,
+                        marker:{
+                            enabled: false
+                        },
+                        data: volYear};
+
+                    //Next Wateryear
+                }
+                $
+
+            });
+        }
+    });
+
+    $.each(series.data,function(){
+        var curDate = moment(this.x);
+
+        if((waterYear >= beginYear) & (waterYear <= endYear)){
+            annualData.push(this.y);
+            years.push(waterYear);
+        }
+    });
+
+}
+
+
+function wy(dateVal){
+    var waterYear = parseInt(dateVal.add(3,'months').format('YYYY'));
+    return waterYear;
+}
 
 function ymdToUTC(e) {
     for (var t = e.split("-"); t.length < 3;) t.push(1);
@@ -773,8 +827,8 @@ function setupTempGraph(container){
             type: "datetime",
             plotLines: [{
                 color: 'black', // Color value
-                dashStyle: 'dot', // Style of the plot line. Default to solid
-                value: moment(), // Value of where the line will appear
+                dashStyle: 'dash', // Style of the plot line. Default to solid
+                value: moment().subtract(24,'h'), // Value of where the line will appear
                 width: '2', // Width of the line
                 zIndex:4
             }],
