@@ -4,8 +4,7 @@
 	<title>Temp_Plot</title>
 	<style type="text/css">v\:* {behavior:url(#default#VML);}</style>
 	<link rel="stylesheet" type="text/css" href="https://code.jquery.com/ui/1.11.4/themes/cupertino/jquery-ui.css" />
-<!--	<link rel="stylesheet" type="text/css" href="./css/xmacis_1.0.12.min.css" />
-	    <link rel="stylesheet" type="text/css" media="print" href="./css/xmacisp_1.0.0.min.css" /> -->
+
     <style>
       #tempChart,#AFDDchart {
         width:800px;
@@ -19,8 +18,17 @@
   </head>
 
 <body>
-<div id="resizer"><div id="tempChart"></div>
-<div id="resizer"><div id="AFDDchart">"</div>
+
+<div id="resizer">
+    <center><input type="button" id="zoomToSpring" value="Zoom to Spring">
+    <p>Shift+Left arrow to plot older EDKmos temperatures or enter date: <input type="text" id="edkDate" ><input type="button" id="loadEkd" value="Load"><br>
+    Left arrow to plot previous year background temperatures<p>
+    tBias <input type="checkbox" id="tBias" checked></center>
+    <div id="tempChart">
+</div>
+<div id="resizer">
+    <div id="AFDDchart">
+</div>
 
 
 
@@ -29,11 +37,25 @@
 <script type="text/javascript" src="./packages_1.0.2.js"></script>
 <script src="https://code.highcharts.com/highcharts.js"></script>
 <script src="https://code.highcharts.com/highcharts-more.js"></script>
+<script src="https://code.highcharts.com/modules/exporting.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment.min.js"></script>
+<script src='https://unpkg.com/simple-statistics@7.0.8/dist/simple-statistics.min.js'></script>
 
 
 
 <script type="text/javascript">
+
+var site = getUrlParam('site','PAFA');
+var addYear = getUrlParam('year','');
+var getForecastNum = getUrlParam('forecast',moment().add(1,'days').format('YYYY-MM-DD'));
+
+
+
+var waterYear = parseInt(moment().add(3,'months').format('YYYY'));
+var startWY = moment(waterYear+"-01-01").add(-3,'months').format('YYYY-MM-DD');
+var endWY = moment(waterYear+"-01-01").add(9,'months').add(-1,'days').format('YYYY-MM-DD');
+
+
 
 var highchartColors, stationsSingleButtons, stationsMultiButtons, defaults = {},
     input_params = {},
@@ -41,19 +63,24 @@ var highchartColors, stationsSingleButtons, stationsMultiButtons, defaults = {},
     dragZoom = null,
     markersArray = [],
     overlaysArray = [],
-    //Highcharts = null,
     areaButtons = null;
-    sDate = "2019-10-01";
-    eDate = "2020-09-30";
+    sDate = startWY;
+    eDate = endWY;
 
-var site = getUrlParam('site','PAFA');
+var tBias = [2.8,3,3.2,3.8,4.4,4.9,5.3,5.4,5.3,5,4.6,4.1,3.8,3.9,4.5,5.2];
+
+
 
 
 setupTempGraph('tempChart');
 addCurrentTemps('tempChart',site,sDate,eDate);
+if(addYear.length == 4){
+    addHistoricTemps('tempChart',site,addYear);
+}
 addForecastSeries('tempChart');
 addExtsToChart('tempChart',site,sDate,eDate);
-addEkdMos('tempChart');
+addEkdMos('tempChart',getForecastNum);
+
 
 // postResults("/StnData",function(e){
 //         displayTempGrf(e);
@@ -187,34 +214,78 @@ function addForecastSeries(container){
 }
 
 
-function addEkdMos(container){
+function addEkdMos(container,forecastNum = 1){
     var chart = $('#'+container).highcharts();
     var forecastURL;
     var siteId = chart.userOptions.siteId;
-    var url = "http://data.whitewinter.net/getEkdmos.php?site="+siteId;
+    var url = "http://data.whitewinter.net/getEkdmos.php?site="+siteId+"&forecast="+forecastNum;
+    var probHigh = [];
     $.ajax({
         dataType: "json",
         url: url,
         success: function(result) {
 
+
+            for(var i = 0; i<result['cdf50'].length;i++){
+                if($('#tBias').is(":checked")){
+                    result['cdf50'][i]['high']= (result['cdf50'][i]['high'] - tBias[i]).toFixed(1);
+                }
+                var recordHigh = chart.get('recordMax').data;
+                var maxTemp = -9999;
+                $.each(recordHigh, function(point) {
+                    if(this.x == result['cdf50'][i]['x'])
+                    {
+                        maxTemp = this.y;
+                    }
+                });
+                if(maxTemp > -999){
+                    var mean = result['cdf50'][i]['high'];
+                    var std = result['sd'][i]['high'];
+                    var zS = ss.zScore(maxTemp,result['cdf50'][i]['high'],result['sd'][i]['high']);
+                    var prob = ss.cumulativeStdNormalProbability(zS);
+                    console.log(prob,maxTemp,result['cdf50'][i]['high'],result['sd'][i]['high']);
+                    prob = parseInt((1-prob)*100);
+                    var pt = [result['cdf50'][i]['x'],prob];
+                    probHigh.push(pt);
+                }
+            }
+            console.log(probHigh);
+            var seriesOps = {
+                name: 'Chance of Record High '+result['basistime'],
+                id: 'chanceHigh',
+                data: probHigh,
+                type: "column",
+                color: 'green',
+                visible: true,
+                zIndex:4,
+                yAxis: 2,
+                opacity: 0.8,
+                lineWidth: 1,
+                turboThreshold:367,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> Chance of Record High: <b>{point.y} %</b><br/>',
+                },
+
+            }
+            chart.addSeries(seriesOps);
             var seriesOps = {
                 name: 'EkdMos Median '+result['basistime'],
-                id: 'ekdmos',
+                id: 'ekdmos50',
                 data: result['cdf50'],
                 type: "columnrange",
                 color: 'red',
                 zIndex:4,
+                opacity: 0.8,
                 lineWidth: 1,
                 turboThreshold:367,
                 tooltip: {
                     pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 50%: <b>{point.low} to {point.high} F</b><br/>',
                 },
             };
-            console.log(seriesOps);
             chart.addSeries(seriesOps);
             var seriesOps = {
                 name: 'EkdMos cfd10',
-                id: 'ekdmos',
+                id: 'ekdmos10',
                 data: result['cdf10'],
                 type: "scatter",
                 visible: false,
@@ -227,14 +298,14 @@ function addEkdMos(container){
                 lineWidth: 0,
                 turboThreshold:367,
                 tooltip: {
+                    shared: true,
                     pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 10%: <b>{point.low} to {point.high} F</b><br/>',
                 },
             };
-            console.log(seriesOps);
             chart.addSeries(seriesOps);
             var seriesOps = {
                 name: 'EkdMos cdf90',
-                id: 'ekdmos',
+                id: 'ekdmos90',
                 visible: false,
                 data: result['cdf90'],
                 type: "scatter",
@@ -247,10 +318,10 @@ function addEkdMos(container){
                 lineWidth: 0,
                 turboThreshold:367,
                 tooltip: {
+                    shared:true,
                     pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 90%: <b>{point.low} to {point.high} F</b><br/>',
                 },
             };
-            console.log(seriesOps);
             chart.addSeries(seriesOps);
         }
     })
@@ -320,20 +391,7 @@ function addCurrentTemps(container,sid,sDate,eDate){
             $.each(e.data, function(e, n) {
             for (t = ymdToUTC(n[0]), a = 1; a < n.length; a += 2) "M" !== n[a] && "M" !== n[a + 1] ? i[(a - 1) / 2].push([t, parseFloat(n[a + 1]), parseFloat(n[a])]) : i[(a - 1) / 2].push([t, null, null])
             })
-            series =  {
-                data: i[0],
-                color: "blue",
-                name: "Observed temp " + r,
-                type: "columnrange",
-                zIndex: 2,
-                lineWidth: 1,
-                turboThreshold: i[0].length + 1,
-                tooltip: {
-                    pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
-                },
-                //pointPadding : 0.25
-            },
-            chart.addSeries(series);
+
             series = {
                 data: i[1],
                 id : 'normals',
@@ -344,8 +402,99 @@ function addCurrentTemps(container,sid,sDate,eDate){
                 lineWidth: 1,
                 turboThreshold: i[1].length + 1,
                 tooltip: {
+                    valueDecimals: 0,
                     pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
                 },
+            },
+            chart.addSeries(series);
+            series =  {
+                data: i[0],
+                color: "blue",
+                name: "Observed temp " + r,
+                type: "columnrange",
+                zIndex: 3,
+                lineWidth: 1,
+                turboThreshold: i[0].length + 1,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
+                },
+                //pointPadding : 0.25
+            },
+            chart.addSeries(series);
+        },
+        error: postError
+    })
+
+}
+
+function addHistoricTemps(container,sid,year){
+
+    var sDate = moment(year+"-01-01").add(-3,'months').format('YYYY-MM-DD');
+    var s = moment(year+"-01-01").add(-3,'months');
+    var eDate = moment(year+"-01-01").add(9,'months').add(-1,'days').format('YYYY-MM-DD');
+
+    var chart = $('#'+container).highcharts();
+
+    var ext = chart.xAxis[0].getExtremes();
+    var scDate = moment(ext.dataMin);
+
+    var yearAdd = scDate.diff(s,'years')+1;
+
+
+
+    var input_params = {
+        "sid" : sid,
+        "sDate" : sDate,
+        "eDate" : eDate,
+        "elems": [{
+                name: "maxt"
+            }, {
+                name: "mint"
+            }]
+        };
+    var o = {
+        params: JSON.stringify(input_params),
+        output: "json"
+    };
+
+    $.ajax({
+        type: "POST",
+        data: o,
+        url: 'https://data.rcc-acis.org/StnData',
+        dataType: "json",
+        async : false,
+        crossDamain: !0,
+        success: function(e) {
+            var t, a,
+            n = e.data[0][0].substr(0, 4),
+            s = e.data[e.data.length - 1][0].substr(0, 4),
+            r = "(" + n + (n !== s ? "-" + s : "") + ")",
+            i = [
+                []
+            ];
+
+            $.each(e.data, function(e, n) {
+
+                for (t = parseInt(moment(n[0]+" 16:00").add(yearAdd,'years').add(-1,'days').format('x')), a = 1; a < n.length; a += 2)
+                     "M" !== n[a] && "M" !== n[a + 1] ? i[(a - 1) / 2].push([t, parseFloat(n[a + 1]), parseFloat(n[a])]) : i[(a - 1) / 2].push([t, null, null])
+            })
+            series =  {
+                data: i[0],
+                color: "#505050",
+                name: "Observed temp " + r,
+                fillOpacity: 0.5,
+                type: "arearange",
+                id: 'historic',
+                legendIndex: 100,
+                sDate: sDate,
+                waterYear: parseInt(year),
+                zIndex: 2,
+                lineWidth: 1,
+                turboThreshold: i[0].length + 1,
+                tooltip: {
+                    pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
+                },
+                //pointPadding : 0.25
             },
             chart.addSeries(series);
         },
@@ -403,12 +552,12 @@ function addExtsToChart(container,sid,sDate,eDate){
     data: o,
     url: 'https://data.rcc-acis.org/StnData',
     dataType: "json",
-    async : true,
+    async : false,
     crossDamain: !0,
     success: function(e) {
         chart.update({
             subtitle : {
-                text: "Period of Record - " + (JSON.stringify(e.meta.valid_daterange[0]) !== JSON.stringify(e.meta.valid_daterange[1]) ? "Max temperature: " + e.meta.valid_daterange[0][0] + " to " + e.meta.valid_daterange[0][1] + "; Min temperature: " : "") + e.meta.valid_daterange[1][0] + " to " + e.meta.valid_daterange[1][1] + ".  Normals period: 1981-2010.  Click and drag to zoom chart."
+                text: "Period of Record - " + (JSON.stringify(e.meta.valid_daterange[0]) !== JSON.stringify(e.meta.valid_daterange[1]) ? "Max temperature: " + e.meta.valid_daterange[0][0] + " to " + e.meta.valid_daterange[0][1] + "; Min temperature: " : "") + e.meta.valid_daterange[1][0] + " to " + e.meta.valid_daterange[1][1] + ".  Normals period: 1981-2010."
             }
         });
         var a, n, s, r, i = {},
@@ -435,6 +584,7 @@ function addExtsToChart(container,sid,sDate,eDate){
             color: "red",
             type: "line",
             showInLegend: !0,
+            id:'recordMax',
             lineWidth: 1,
             tooltip: {
                 pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.y} F</b><br/>',
@@ -632,64 +782,14 @@ function roundNum(e, t) {
 
 function setupTempGraph(container){
 
-    //var t = e && e.yaxisCnt ? e.yaxisCnt : 1,
+
     var t = 1,
         a = highchartColors ? highchartColors.darkColor : "black",
         n = highchartColors ? highchartColors.medColor : "#3baae3",
         o = highchartColors ? highchartColors.ltColor : "#aed0ea",
         i = highchartColors ? highchartColors.vltColor : "#e4f1fb",
         r = highchartColors ? highchartColors.shadingColor : "#4572a7",
-        s = [{
-            title: {
-                style: {
-                    color: a,
-                    fontWeight: "bold"
-                }
-            },
-            lineColor: n,
-            gridLineColor: o,
-            gridLineWidth: 1,
-            minorGridLineWidth: 1,
-            minorGridLineDashStyle: "dot",
-            minorTickInterval: "auto",
-            minorTickWidth: 1,
-            showFirstLabel: !0,
-            showLastLabel: !0,
-            labels: {
-                align: "right",
-                x: -5,
-                y: 3,
-                style: {
-                    color: a
-                }
-            },
-            opposite: !1
-        }, {
-            title: {
-                text: "Temperature (°C)",
-                style: {
-                    color: a,
-                    fontWeight: "bold"
-                }
-            },
-            lineColor: n,
-            gridLineWidth: 0,
-            minorGridLineWidth: 0,
-            minorTickInterval: "auto",
-            minorTickWidth: 1,
-            showFirstLabel: !0,
-            showLastLabel: !0,
-            labels: {
-                align: "left",
-                x: 5,
-                y: 3,
-                style: {
-                    color: a
-                }
-            },
-            opposite: !0,
-            linkedTo: 0
-        }];
+
     chartObject =  {
         chart: {
             renderTo: container,
@@ -701,8 +801,8 @@ function setupTempGraph(container){
             position: {
                 align: "right",
                 verticalAlign: "top",
-                x: -15,
-                y: 5
+                x: -35,
+                y: 2
             },
             relativeTo: "chart"
         },
@@ -721,6 +821,18 @@ function setupTempGraph(container){
         },
         credits: {
             enabled: false
+        },
+        exporting: {
+            //sourceWidth: 400,
+            //sourceHeight: 200,
+            allowHTML: true,
+            scale: 2,
+            chartOptions: {
+                //subtitle: null,
+                legend: {
+                    enabled: false
+                    }
+            }
         },
         navigation: {
             buttonOptions: {
@@ -857,6 +969,12 @@ function setupTempGraph(container){
                 title: {
                     text: "Temperature (°F)"
                 },
+                yAxis: {
+                    endOnTick: false,
+                    maxPadding: 0.05,
+                    max: 90,
+                    min:-50
+                },
             },
             {
                 title: {
@@ -869,6 +987,15 @@ function setupTempGraph(container){
                         return Math.round((this.value - 32) / 1.8 * 10) / 10
                     }
                 }
+            },
+            {
+                title: {
+                    text: "Chance of Record High"
+                },
+                opposite:true,
+                visible:false,
+                min: 0,
+                max: 100,
             }
         ],
         plotOptions: {
@@ -963,8 +1090,94 @@ function setupTempGraph(container){
         series: []
     }
     chart = new Highcharts.Chart(chartObject);
+
 }
 
+$('#zoomToSpring').click(function(){
+    var tempChart = $('#tempChart').highcharts();
+    var start = parseInt(moment(waterYear+'-03-01').format('x'));
+    var end =  parseInt(moment(waterYear+'-06-01').format('x'));
+
+    tempChart.xAxis[0].setExtremes(start,end);
+    tempChart.showResetZoom();
+});
+
+$('#loadEkd').click(function(){
+    var chart = $('#tempChart').highcharts();
+    chart.get('ekdmos50').remove();
+    chart.get('ekdmos90').remove();
+    chart.get('ekdmos10').remove();
+    chart.get('chanceHigh').remove();
+
+    getForecastNum = moment($('#edkDate').val()).format('YYYY-MM-DD');
+    addEkdMos('tempChart',getForecastNum);
+
+});
+
+$('#tBias').change(function(){
+    var chart = $('#tempChart').highcharts();
+    chart.get('ekdmos50').remove();
+    chart.get('ekdmos90').remove();
+    chart.get('ekdmos10').remove();
+    chart.get('chanceHigh').remove();
+    addEkdMos('tempChart',getForecastNum);
+
+});
+
+$(document).keydown(function(e) {
+
+    if(e.keyCode == 37 && e.shiftKey){
+        var chart = $('#tempChart').highcharts();
+        chart.get('ekdmos50').remove();
+        chart.get('ekdmos90').remove();
+        chart.get('ekdmos10').remove();
+        chart.get('chanceHigh').remove();
+
+        getForecastNum = moment(getForecastNum).add(-1,'days').format('YYYY-MM-DD');
+        addEkdMos('tempChart',getForecastNum);
+        return;
+    }
+    if(e.keyCode == 39 && e.shiftKey){
+        var chart = $('#tempChart').highcharts();
+        chart.get('ekdmos50').remove();
+        chart.get('ekdmos90').remove();
+        chart.get('ekdmos10').remove();
+        chart.get('chanceHigh').remove();
+
+        getForecastNum = moment(getForecastNum).add(1,'days').format('YYYY-MM-DD');
+        addEkdMos('tempChart',getForecastNum);
+        return;
+    }
+
+    switch(e.which) {
+        case 37: // left
+            var chart = $('#tempChart').highcharts();
+            var series = chart.get('historic');
+            var wy = 2020;
+            if(typeof series != "undefined"){
+                wy = series.userOptions.waterYear;
+                series.remove();
+            }
+            wy = wy - 1;
+            addHistoricTemps('tempChart',site,wy);
+
+        break;
+        case 39: // right
+            var chart = $('#tempChart').highcharts();
+            var series = chart.get('historic');
+            var wy = 2020;
+            if(typeof series != "undefined"){
+                wy = series.userOptions.waterYear;
+                console.log(wy);
+                series.remove();
+            }
+            wy = wy + 1;
+            addHistoricTemps('tempChart',site,wy);
+        break;
+        default: return; // exit this handler for other keys
+    }
+    e.preventDefault(); // prevent the default action (scroll / move caret)
+});
 
 </script>
 
