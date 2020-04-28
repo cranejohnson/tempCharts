@@ -258,7 +258,7 @@ function addEkdMos(container,forecastNum = 1){
                 color: 'green',
                 visible: true,
                 zIndex:4,
-                yAxis: 2,
+                yAxis: 1,
                 opacity: 0.8,
                 lineWidth: 1,
                 turboThreshold:367,
@@ -798,12 +798,12 @@ function setupTempGraph(container){
             borderColor: n,
             spacingBottom: 20,
             resetZoomButton: {
-            position: {
-                align: "right",
-                verticalAlign: "top",
-                x: -35,
-                y: 2
-            },
+                position: {
+                    align: "right",
+                    verticalAlign: "bottom",
+                    x: -10,
+                    y: -35
+                },
             relativeTo: "chart"
         },
         },
@@ -823,8 +823,6 @@ function setupTempGraph(container){
             enabled: false
         },
         exporting: {
-            //sourceWidth: 400,
-            //sourceHeight: 200,
             allowHTML: true,
             scale: 2,
             chartOptions: {
@@ -836,6 +834,8 @@ function setupTempGraph(container){
         },
         navigation: {
             buttonOptions: {
+                verticalAlign: 'bottom',
+                y: -15,
                 theme: {
                     states: {
                         hover: {
@@ -970,23 +970,12 @@ function setupTempGraph(container){
                     text: "Temperature (°F)"
                 },
                 yAxis: {
+                    min:-50,
+                    max:100,
                     endOnTick: false,
+                    startOnTick: false,
                     maxPadding: 0.05,
-                    max: 90,
-                    min:-50
                 },
-            },
-            {
-                title: {
-                    text: "Temperature (°C)"
-                },
-                linkedTo: 0,
-                opposite: true,
-                labels : {
-                    formatter: function() {
-                        return Math.round((this.value - 32) / 1.8 * 10) / 10
-                    }
-                }
             },
             {
                 title: {
@@ -996,7 +985,21 @@ function setupTempGraph(container){
                 visible:false,
                 min: 0,
                 max: 100,
+                alignTicks: false
             }
+//             {
+//                 title: {
+//                     text: "Temperature (°C)"
+//                 },
+//                 linkedTo: 0,
+//                 opposite: true,
+//                 labels : {
+//                     formatter: function() {
+//                         return Math.round((this.value - 32) / 1.8 * 10) / 10
+//                     }
+//                 }
+//             },
+
         ],
         plotOptions: {
 
