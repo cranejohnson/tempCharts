@@ -20,10 +20,10 @@
 <body>
 
 <div id="resizer">
-    <center><input type="button" id="zoomToSpring" value="Zoom to Spring">
+    <center><input type="button" id="zoom" value="Zoom Current"><input type="button" id="zoomToSpring" value="Zoom to Spring">
     <p>Shift+Left arrow to plot older EDKmos temperatures or enter date: <input type="text" id="edkDate" ><input type="button" id="loadEkd" value="Load"><br>
     Left arrow to plot previous year background temperatures<p>
-    tBias <input type="checkbox" id="tBias" checked></center>
+    tBias <input type="checkbox" id="tBias" ></center>
     <div id="tempChart">
 </div>
 <div id="resizer">
@@ -78,8 +78,11 @@ if(addYear.length == 4){
     addHistoricTemps('tempChart',site,addYear);
 }
 addForecastSeries('tempChart');
+addNDFDForecast('tempChart');
 addExtsToChart('tempChart',site,sDate,eDate);
 addEkdMos('tempChart',getForecastNum);
+
+
 
 
 // postResults("/StnData",function(e){
@@ -87,6 +90,10 @@ addEkdMos('tempChart',getForecastNum);
 //     });
 
 
+function round5(x)
+{
+    return Math.ceil(x/5)*5;
+}
 
 
 function getUrlVars() {
@@ -145,8 +152,33 @@ function postResults(e, t, a) {
 }
 
 
+function addNDFDForecast(container){
+    var chart = $('#'+container).highcharts();
+    var forecastURL;
+    var NDFDurl = "https://graphical.weather.gov/xml/SOAP_server/ndfdXMLclient.php?whichClient=NDFDgen&lat="+chart.userOptions.lat+"&lon="+chart.userOptions.lon+"&product=time-series&Unit=e&maxt=maxt&mint=mint&Submit=Submit";
+    var maxArray = [],
+        minArray = [],
+        data = [],
+        times = [];
+
+    $.ajax({
+        dataType: "xml",
+        url: NDFDurl,
+        success: function(result){
+            var xmlDoc = $.parseXML(result);
+            var $xml = $( xmlDoc );
+            var times = $xml.find("time-layou");
+            console.log(times);
+            var parameters = $xml.find( "parameters" );
+            parameters.children().each(function(){
 
 
+            });
+
+        }
+    });
+
+}
 
 function addForecastSeries(container){
     var chart = $('#'+container).highcharts();
@@ -195,7 +227,7 @@ function addForecastSeries(container){
                 data.push(column);
             }
             seriesOps = {
-                name: 'Current NWS Forecast',
+                name: 'Current NWS Forecast (via API)',
                 id: 'nwsForecast',
                 data: data,
                 type: "columnrange",
@@ -256,7 +288,7 @@ function addEkdMos(container,forecastNum = 1){
                 data: probHigh,
                 type: "column",
                 color: 'green',
-                visible: true,
+                visible: false,
                 zIndex:4,
                 yAxis: 1,
                 opacity: 0.8,
@@ -267,7 +299,7 @@ function addEkdMos(container,forecastNum = 1){
                 },
 
             }
-            chart.addSeries(seriesOps);
+            //chart.addSeries(seriesOps);
             var seriesOps = {
                 name: 'EkdMos Median '+result['basistime'],
                 id: 'ekdmos50',
@@ -332,8 +364,8 @@ function addCurrentTemps(container,sid,sDate,eDate){
     chart.yAxis[0].addPlotBand({
             value: 32,
             color: "blue",
-            dashStyle: "shortdash",
-            width: 1,
+            dashStyle: "longdash",
+            width: 2,
             zIndex: 1
     });
     var input_params = {
@@ -969,24 +1001,20 @@ function setupTempGraph(container){
                 title: {
                     text: "Temperature (°F)"
                 },
-                yAxis: {
-                    min:-50,
-                    max:100,
-                    endOnTick: false,
-                    startOnTick: false,
-                    maxPadding: 0.05,
-                },
+                minPadding:0,
+                maxPadding:0,
+                tickInterval: 10,
             },
-            {
-                title: {
-                    text: "Chance of Record High"
-                },
-                opposite:true,
-                visible:false,
-                min: 0,
-                max: 100,
-                alignTicks: false
-            }
+//             {
+//                 title: {
+//                     text: "Chance of Record High"
+//                 },
+//                 opposite:true,
+//                 visible:false,
+//                 min: 0,
+//                 max: 100,
+//                 alignTicks: false
+//            }
 //             {
 //                 title: {
 //                     text: "Temperature (°C)"
@@ -1105,6 +1133,16 @@ $('#zoomToSpring').click(function(){
     tempChart.showResetZoom();
 });
 
+
+$('#zoom').click(function(){
+    var tempChart = $('#tempChart').highcharts();
+    var start = parseInt(moment().subtract(14,'d').format('x'));
+    var end =  parseInt(moment().add(14,'d').format('x'));
+
+    tempChart.xAxis[0].setExtremes(start,end);
+    tempChart.showResetZoom();
+});
+
 $('#loadEkd').click(function(){
     var chart = $('#tempChart').highcharts();
     chart.get('ekdmos50').remove();
@@ -1134,7 +1172,7 @@ $(document).keydown(function(e) {
         chart.get('ekdmos50').remove();
         chart.get('ekdmos90').remove();
         chart.get('ekdmos10').remove();
-        chart.get('chanceHigh').remove();
+        //chart.get('chanceHigh').remove();
 
         getForecastNum = moment(getForecastNum).add(-1,'days').format('YYYY-MM-DD');
         addEkdMos('tempChart',getForecastNum);
@@ -1145,7 +1183,7 @@ $(document).keydown(function(e) {
         chart.get('ekdmos50').remove();
         chart.get('ekdmos90').remove();
         chart.get('ekdmos10').remove();
-        chart.get('chanceHigh').remove();
+        //chart.get('chanceHigh').remove();
 
         getForecastNum = moment(getForecastNum).add(1,'days').format('YYYY-MM-DD');
         addEkdMos('tempChart',getForecastNum);
