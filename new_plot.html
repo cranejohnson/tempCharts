@@ -21,9 +21,9 @@
 
 <div id="resizer">
     <center><input type="button" id="zoom" value="Zoom Current"><input type="button" id="zoomToSpring" value="Zoom to Spring">
-    <p>Shift+Left arrow to plot older EDKmos temperatures or enter date: <input type="text" id="edkDate" ><input type="button" id="loadEkd" value="Load"><br>
+    <p>Shift+Left arrow to plot older NBM temperatures or enter date: <input type="text" id="nbmDate" ><input type="button" id="loadNBM" value="Load"><br>
     Left arrow to plot previous year background temperatures<p>
-    tBias <input type="checkbox" id="tBias" ></center>
+    <!-- tBias <input type="checkbox" id="tBias" ></center> -->
     <div id="tempChart">
 </div>
 <div id="resizer">
@@ -47,7 +47,7 @@
 
 var site = getUrlParam('site','PAFA');
 var addYear = getUrlParam('year','');
-var getForecastNum = getUrlParam('forecast',moment().add(1,'days').format('YYYY-MM-DD'));
+var getForecastNum = getUrlParam('forecast',moment().add(6,'hours').format('YYYY-MM-DD H:00'));
 
 
 
@@ -80,7 +80,7 @@ if(addYear.length == 4){
 addForecastSeries('tempChart');
 addNDFDForecast('tempChart');
 addExtsToChart('tempChart',site,sDate,eDate);
-addEkdMos('tempChart',getForecastNum);
+addNBM('tempChart',getForecastNum);
 
 
 
@@ -171,8 +171,6 @@ function addNDFDForecast(container){
             console.log(times);
             var parameters = $xml.find( "parameters" );
             parameters.children().each(function(){
-
-
             });
 
         }
@@ -185,7 +183,7 @@ function addForecastSeries(container){
     var forecastURL;
 
     $.ajax({
-        dataType: "json",
+        //dataType: "json",
         url: "https://api.weather.gov/points/"+chart.userOptions.lat+","+chart.userOptions.lon,
         async : false,
         success: function(result){
@@ -193,41 +191,31 @@ function addForecastSeries(container){
         }
     });
     $.ajax({
-        dataType: "json",
+        //dataType: "json",
         url: forecastURL,
         async : false,
         success: function(result) {
             var d = {};
             var times = [];
             var data = [];
-
+            var column = {};
             $.each(result.properties.periods,function(){
-                var day = moment.utc(this.startTime).add(6, 'hours').startOf('day').format("x");
-                if(typeof d[day]  != "undefined"){
-                    d[day].push(this.temperature);
-                    d[day].sort(sortTemps);
-                }else{
-                    times.push(day);
-                    d[day] = [this.temperature];
+                if (this.isDaytime == false) {
+                  column['low'] = this.temperature;
+                  column['x'] = parseInt(moment.utc(this.startTime).add(6, 'hours').startOf('day').format("x"));
                 }
+                else{
+                  if('low' in column){
+                    column['high'] = this.temperature;
+                    data.push(column);
+                    column = {};
+                  }
+                }
+
             });
-            //add a min value if the first period is in the evening
-            if(d[times[0]].length == 1) d[times[0]].unshift(d[times[0]][0]-10);
-            for (var i = 0; i < times.length; i++) {
-                var x = times[i];
-                if(d[x].length == 1) continue;
-                var column = {};
-
-                column['x'] = parseInt(x);
-                column['low'] = d[x][0];
-                column['high'] = d[x][1];
-                var flat = [parseInt(x),d[x][0],d[x][1]];
-
-                //Do something
-                data.push(column);
-            }
+            var fcstUpdate = moment(result.properties.updated).format("MMM D H:m");
             seriesOps = {
-                name: 'Current NWS Forecast (via API)',
+                name: 'Current NWS Forecast (via API) '+fcstUpdate,
                 id: 'nwsForecast',
                 data: data,
                 type: "columnrange",
@@ -235,6 +223,7 @@ function addForecastSeries(container){
                 zIndex:10,
                 lineWidth: 1,
                 turboThreshold:367,
+                animation: false,
                 tooltip: {
                     pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
                 },
@@ -246,112 +235,95 @@ function addForecastSeries(container){
 }
 
 
-function addEkdMos(container,forecastNum = 1){
+function addNBM(container,forecastNum = 1){
     var chart = $('#'+container).highcharts();
     var forecastURL;
     var siteId = chart.userOptions.siteId;
-    var url = "http://data.whitewinter.net/getEkdmos.php?site="+siteId+"&forecast="+forecastNum;
+    var url = "http://data.whitewinter.net/getNBM.php?site="+siteId+"&forecast="+forecastNum;
     var probHigh = [];
     $.ajax({
         dataType: "json",
         url: url,
         success: function(result) {
+            var nbmHiLo = [];
+            var point = {
+                x : null,
+                low: null,
+                high: null };
 
+            for(var i = 0; i<result['data'].length;i++){
+              var date = moment.utc(result['data'][i]['validtime']);
+              if((date.format("H") == 00) && (point['low'] !== null)) {
+                point['x'] = parseInt(date.format("x"))+(-24*3600*1000);
+                point['high'] = parseInt(result['data'][i]['TXN']);
+                nbmHiLo.push(point);
+                point = {
+                  x : null,
+                  low: null,
+                  high: null };
+              }
+              else{
+                point['low'] = parseInt(result['data'][i]['TXN']);
+              }
 
-            for(var i = 0; i<result['cdf50'].length;i++){
-                if($('#tBias').is(":checked")){
-                    result['cdf50'][i]['high']= (result['cdf50'][i]['high'] - tBias[i]).toFixed(1);
-                }
-                var recordHigh = chart.get('recordMax').data;
-                var maxTemp = -9999;
-                $.each(recordHigh, function(point) {
-                    if(this.x == result['cdf50'][i]['x'])
-                    {
-                        maxTemp = this.y;
-                    }
-                });
-                if(maxTemp > -999){
-                    var mean = result['cdf50'][i]['high'];
-                    var std = result['sd'][i]['high'];
-                    var zS = ss.zScore(maxTemp,result['cdf50'][i]['high'],result['sd'][i]['high']);
-                    var prob = ss.cumulativeStdNormalProbability(zS);
-                    console.log(prob,maxTemp,result['cdf50'][i]['high'],result['sd'][i]['high']);
-                    prob = parseInt((1-prob)*100);
-                    var pt = [result['cdf50'][i]['x'],prob];
-                    probHigh.push(pt);
-                }
-            }
-            console.log(probHigh);
-            var seriesOps = {
-                name: 'Chance of Record High '+result['basistime'],
-                id: 'chanceHigh',
-                data: probHigh,
-                type: "column",
-                color: 'green',
-                visible: false,
-                zIndex:4,
-                yAxis: 1,
-                opacity: 0.8,
-                lineWidth: 1,
-                turboThreshold:367,
-                tooltip: {
-                    pointFormat: '<span style="color:{point.color}">●</span> Chance of Record High: <b>{point.y} %</b><br/>',
-                },
 
             }
+
+//             for(var i = 0; i<result['cdf50'].length;i++){
+//                 if($('#tBias').is(":checked")){
+//                     result['cdf50'][i]['high']= (result['cdf50'][i]['high'] - tBias[i]).toFixed(1);
+//                 }
+//                 var recordHigh = chart.get('recordMax').data;
+//                 var maxTemp = -9999;
+//                 $.each(recordHigh, function(point) {
+//                     if(this.x == result['cdf50'][i]['x'])
+//                     {
+//                         maxTemp = this.y;
+//                     }
+//                 });
+//                 if(maxTemp > -999){
+//                     var mean = result['cdf50'][i]['high'];
+//                     var std = result['sd'][i]['high'];
+//                     var zS = ss.zScore(maxTemp,result['cdf50'][i]['high'],result['sd'][i]['high']);
+//                     var prob = ss.cumulativeStdNormalProbability(zS);
+//                     console.log(prob,maxTemp,result['cdf50'][i]['high'],result['sd'][i]['high']);
+//                     prob = parseInt((1-prob)*100);
+//                     var pt = [result['cdf50'][i]['x'],prob];
+//                     probHigh.push(pt);
+//                 }
+//             }
+//             console.log(probHigh);
+//             var seriesOps = {
+//                 name: 'Chance of Record High '+result['basistime'],
+//                 id: 'chanceHigh',
+//                 data: probHigh,
+//                 type: "column",
+//                 color: 'green',
+//                 visible: false,
+//                 zIndex:4,
+//                 yAxis: 1,
+//                 opacity: 0.8,
+//                 lineWidth: 1,
+//                 turboThreshold:367,
+//                 tooltip: {
+//                     pointFormat: '<span style="color:{point.color}">●</span> Chance of Record High: <b>{point.y} %</b><br/>',
+//                 },
+//
+//             }
             //chart.addSeries(seriesOps);
             var seriesOps = {
-                name: 'EkdMos Median '+result['basistime'],
-                id: 'ekdmos50',
-                data: result['cdf50'],
+                name: 'NBM Temps '+result['basistime'],
+                id: 'NBMtemps',
+                data: nbmHiLo,
                 type: "columnrange",
                 color: 'red',
                 zIndex:4,
                 opacity: 0.8,
                 lineWidth: 1,
+                animation: false,
                 turboThreshold:367,
                 tooltip: {
-                    pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 50%: <b>{point.low} to {point.high} F</b><br/>',
-                },
-            };
-            chart.addSeries(seriesOps);
-            var seriesOps = {
-                name: 'EkdMos cfd10',
-                id: 'ekdmos10',
-                data: result['cdf10'],
-                type: "scatter",
-                visible: false,
-                marker: {
-                    symbol: 'circle',
-                    radius: 6
-                },
-                color: 'green',
-                zIndex:5,
-                lineWidth: 0,
-                turboThreshold:367,
-                tooltip: {
-                    shared: true,
-                    pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 10%: <b>{point.low} to {point.high} F</b><br/>',
-                },
-            };
-            chart.addSeries(seriesOps);
-            var seriesOps = {
-                name: 'EkdMos cdf90',
-                id: 'ekdmos90',
-                visible: false,
-                data: result['cdf90'],
-                type: "scatter",
-                color: 'blue',
-                marker: {
-                    symbol: 'circle',
-                    radius: 6
-                },
-                zIndex:5,
-                lineWidth: 0,
-                turboThreshold:367,
-                tooltip: {
-                    shared:true,
-                    pointFormat: '<span style="color:{point.color}">●</span> EKDMOS 90%: <b>{point.low} to {point.high} F</b><br/>',
+                    pointFormat: '<span style="color:{point.color}">●</span> Blend of Model Temps: <b>{point.low} to {point.high} F</b><br/>',
                 },
             };
             chart.addSeries(seriesOps);
@@ -1143,25 +1115,21 @@ $('#zoom').click(function(){
     tempChart.showResetZoom();
 });
 
-$('#loadEkd').click(function(){
+$('#loadNBM').click(function(){
     var chart = $('#tempChart').highcharts();
-    chart.get('ekdmos50').remove();
-    chart.get('ekdmos90').remove();
-    chart.get('ekdmos10').remove();
+    chart.get('NBMtemps').remove();
     chart.get('chanceHigh').remove();
 
-    getForecastNum = moment($('#edkDate').val()).format('YYYY-MM-DD');
-    addEkdMos('tempChart',getForecastNum);
+    getForecastNum = moment($('#nbmDate').val()).format('YYYY-MM-DD');
+    addNBM('tempChart',getForecastNum);
 
 });
 
 $('#tBias').change(function(){
     var chart = $('#tempChart').highcharts();
-    chart.get('ekdmos50').remove();
-    chart.get('ekdmos90').remove();
-    chart.get('ekdmos10').remove();
+    chart.get('NBMtemps').remove();
     chart.get('chanceHigh').remove();
-    addEkdMos('tempChart',getForecastNum);
+    addNBM('tempChart',getForecastNum);
 
 });
 
@@ -1169,24 +1137,20 @@ $(document).keydown(function(e) {
 
     if(e.keyCode == 37 && e.shiftKey){
         var chart = $('#tempChart').highcharts();
-        chart.get('ekdmos50').remove();
-        chart.get('ekdmos90').remove();
-        chart.get('ekdmos10').remove();
+        chart.get('NBMtemps').remove();
         //chart.get('chanceHigh').remove();
 
-        getForecastNum = moment(getForecastNum).add(-1,'days').format('YYYY-MM-DD');
-        addEkdMos('tempChart',getForecastNum);
+        getForecastNum = moment(getForecastNum).add(-6,'hours').format('YYYY-MM-DD H:00');
+        addNBM('tempChart',getForecastNum);
         return;
     }
     if(e.keyCode == 39 && e.shiftKey){
         var chart = $('#tempChart').highcharts();
-        chart.get('ekdmos50').remove();
-        chart.get('ekdmos90').remove();
-        chart.get('ekdmos10').remove();
+        chart.get('NBMtemps').remove();
         //chart.get('chanceHigh').remove();
 
-        getForecastNum = moment(getForecastNum).add(1,'days').format('YYYY-MM-DD');
-        addEkdMos('tempChart',getForecastNum);
+        getForecastNum = moment(getForecastNum).add(6,'hours').format('YYYY-MM-DD H:00');
+        addNBM('tempChart',getForecastNum);
         return;
     }
 
@@ -1194,7 +1158,7 @@ $(document).keydown(function(e) {
         case 37: // left
             var chart = $('#tempChart').highcharts();
             var series = chart.get('historic');
-            var wy = 2020;
+            var wy = 2021;
             if(typeof series != "undefined"){
                 wy = series.userOptions.waterYear;
                 series.remove();
@@ -1206,7 +1170,7 @@ $(document).keydown(function(e) {
         case 39: // right
             var chart = $('#tempChart').highcharts();
             var series = chart.get('historic');
-            var wy = 2020;
+            var wy = 2021;
             if(typeof series != "undefined"){
                 wy = series.userOptions.waterYear;
                 console.log(wy);
