@@ -199,38 +199,41 @@ function addForecastSeries(container){
             var times = [];
             var data = [];
             var column = {};
-            $.each(result.properties.periods,function(){
-                if (this.isDaytime == false) {
-                  column['low'] = this.temperature;
-                  column['x'] = parseInt(moment.utc(this.startTime).add(6, 'hours').startOf('day').format("x"));
-                }
-                else{
-                  if('low' in column){
-                    column['high'] = this.temperature;
-                    data.push(column);
-                    column = {};
+            if (typeof(result.properties) !== 'undefined'){
+              $.each(result.properties.periods,function(){
+                  if (this.isDaytime == false) {
+                    column['low'] = this.temperature;
+                    column['x'] = parseInt(moment.utc(this.startTime).add(6, 'hours').startOf('day').format("x"));
                   }
-                }
+                  else{
+                    if('low' in column){
+                      column['high'] = this.temperature;
+                      data.push(column);
+                      column = {};
+                    }
+                  }
 
-            });
-            var fcstUpdate = moment(result.properties.updated).format("MMM D H:m");
-            seriesOps = {
-                name: 'Current NWS Forecast (via API) '+fcstUpdate,
-                id: 'nwsForecast',
-                data: data,
-                type: "columnrange",
-                color: 'black',
-                zIndex:10,
-                lineWidth: 1,
-                turboThreshold:367,
-                animation: false,
-                tooltip: {
-                    pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
-                },
-            };
+              });
+              var fcstUpdate = moment(result.properties.updated).format("MMM D H:m");
+              seriesOps = {
+                  name: 'Current NWS Forecast (via API) '+fcstUpdate,
+                  id: 'nwsForecast',
+                  data: data,
+                  type: "columnrange",
+                  color: 'black',
+                  zIndex:10,
+                  lineWidth: 1,
+                  turboThreshold:367,
+                  animation: false,
+                  opacity: 0.8,
+                  tooltip: {
+                      pointFormat: '<span style="color:{point.color}">●</span> {series.name}: <b>{point.low} to {point.high} F</b><br/>',
+                  },
+              };
 
-            chart.addSeries(seriesOps);
-        }
+              chart.addSeries(seriesOps);
+          }
+       }
     })
 }
 
@@ -1140,7 +1143,7 @@ $(document).keydown(function(e) {
         chart.get('NBMtemps').remove();
         //chart.get('chanceHigh').remove();
 
-        getForecastNum = moment(getForecastNum).add(-6,'hours').format('YYYY-MM-DD H:00');
+        getForecastNum = moment(getForecastNum).add(-24,'hours').format('YYYY-MM-DD H:00');
         addNBM('tempChart',getForecastNum);
         return;
     }
@@ -1149,7 +1152,7 @@ $(document).keydown(function(e) {
         chart.get('NBMtemps').remove();
         //chart.get('chanceHigh').remove();
 
-        getForecastNum = moment(getForecastNum).add(6,'hours').format('YYYY-MM-DD H:00');
+        getForecastNum = moment(getForecastNum).add(24,'hours').format('YYYY-MM-DD H:00');
         addNBM('tempChart',getForecastNum);
         return;
     }
